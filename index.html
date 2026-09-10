@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nebolusverse Bot</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="card">
+  <h1>⚓ NEBOLUSVERSE ⚓</h1>
+  <p class="sub">Bot WhatsApp - Auto Connect</p>
+  <div class="status" id="status">🔴 DISCONNECTED</div>
+
+  <button class="big-btn" onclick="mintaQR()">📸 TAMPILKAN QR CODE</button>
+
+  <div id="qrbox" style="display:none">
+    <div class="waiting" id="qrwait">⏳ Menunggu QR... (3-5 detik)</div>
+    <img id="qr" src="" alt="QR">
+  </div>
+
+  <div class="divider">ATAU PAKE KODE 8 DIGIT</div>
+
+  <div id="pairbox">
+    <input type="text" id="phone" placeholder="628xxxxxxxxxx" inputmode="numeric">
+    <button id="btnpair" onclick="mintaKode()">📱 MINTA KODE</button>
+    <div id="code">--------</div>
+    <p id="pairerr" class="err hide"></p>
+  </div>
+
+  <div class="info" id="info" style="display:none">
+    <b>📌 Cara masukin kode:</b><br>
+    1. Buka WhatsApp di HP nomor bot<br>
+    2. Klik titik 3 → <b>Perangkat Tertaut</b><br>
+    3. Klik <b>"Tautkan dengan nomor telepon saja"</b><br>
+    4. Masukin kode 8 digit di atas
+  </div>
+
+  <div id="okbox" style="display:none">
+    <div class="info">
+      <b>✅ Bot Terhubung!</b><br>
+      Test kirim command:<br>
+      • <b>.menu</b> - Menu lengkap<br>
+      • <b>.ping</b> - Cek bot<br>
+      • <b>.calc 2+2</b> - Kalkulator<br>
+      • <b>.suit batu</b> - Game<br>
+      • <b>.slot</b> - Slot machine<br>
+      • <b>.dadu</b> - Lempar dadu
+    </div>
+  </div>
+</div>
+<script src="/socket.io/socket.io.js"></script>
+<script src="script.js"></script>
+</body>
+  </html>
