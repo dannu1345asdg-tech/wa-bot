@@ -18,8 +18,7 @@ let isConnected = false;
 let pairingMode = false;
 let lastQR = null;
 let lastCode = null;
-
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(__dirname));
 
 async function startBot() {
     console.log('=== START BOT ===');
