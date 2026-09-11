@@ -7,6 +7,9 @@ const pino = require('pino');
 const fs = require('fs');
 const path = require('path');
 
+process.on('unhandledRejection', (err) => console.log('UNHANDLED:', err?.message || err));
+process.on('uncaughtException', (err) => console.log('UNCAUGHT:', err?.message || err));
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
@@ -18,128 +21,98 @@ let isConnected = false;
 let pairingMode = false;
 let lastQR = null;
 let lastCode = null;
+let reconnectCount = 0;
+
 app.use(express.static(__dirname));
 
+app.get('/health', (req, res) => res.send('OK'));
+
 async function startBot() {
-    console.log('=== START BOT ===');
-    const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
-
-    sock = makeWASocket({
-        logger: pino({ level: 'silent' }),
-        auth: state,
-        printQRInTerminal: false,
-        browser: ["Ubuntu", "Chrome", "20.0.0"],
-        syncFullHistory: false,
-        markOnlineOnConnect: false
-    });
-
-    sock.ev.on('creds.update', saveCreds);
-
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
-        console.log('CONN:', connection || '-', '| QR:', qr ? 'YES' : 'NO');
-
-        if (qr && !pairingMode) {
-            try {
-                const qrURL = await QRCode.toDataURL(qr, { width: 500, margin: 2 });
-                lastQR = qrURL;
-                io.emit('qr', qrURL);
-            } catch (e) { console.log('QR err:', e.message); }
+    try {
+        if (sock) {
+            try { sock.end(); } catch(e) {}
+            sock = null;
         }
 
-        if (connection === 'close') {
-            const code = lastDisconnect?.error?.output?.statusCode;
-            isConnected = false;
-            io.emit('status', 'disconnected');
-            if (code !== DisconnectReason.loggedOut) setTimeout(() => startBot(), 2000);
-        } else if (connection === 'open') {
-            isConnected = true;
-            pairingMode = false;
-            lastQR = null;
-            lastCode = null;
-            io.emit('status', 'connected');
-            console.log('✅ BOT CONNECTED!');
-        }
-    });
+        console.log('=== START BOT ===');
+        const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
 
-    sock.ev.on('messages.upsert', async ({ messages, type }) => {
-        if (type !== 'notify') return;
-        const msg = messages[0];
-        if (!msg.message) return;
-        const from = msg.key.remoteJid;
-        const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || '').trim();
-        const cmd = text.toLowerCase();
+        sock = makeWASocket({
+            logger: pino({ level: 'silent' }),
+            auth: state,
+            printQRInTerminal: false,
+            browser: ["Ubuntu", "Chrome", "20.0.0"],
+            syncFullHistory: false,
+            markOnlineOnConnect: false,
+            connectTimeoutMs: 60000,
+            defaultQueryTimeoutMs: 60000,
+            keepAliveIntervalMs: 30000
+        });
 
-        if (cmd === '.menu') {
-            const menu = `╔══════════════════════════════╗
-║   ✦ NEBOLUSVERSE BOT ✦      ║
-╚══════════════════════════════╝
+        sock.ev.on('creds.update', saveCreds);
 
-📋 *UTAMA*
-• .menu - Menu
-• .ping - Cek bot
-• .info - Info bot
-• .owner - Owner
-• .status - Status
+        sock.ev.on('connection.update', async (update) => {
+            const { connection, lastDisconnect, qr } = update;
+            console.log('CONN:', connection || '-', '| QR:', qr ? 'YES' : 'NO');
 
-🛠️ *TOOLS*
-• .calc [angka] - Kalkulator
-• .qr [teks] - Bikin QR
-• .waktu - Waktu sekarang
-• .translate [teks] - Translate
+            if (qr && !pairingMode) {
+                try {
+                    lastQR = await QRCode.toDataURL(qr, { width: 500, margin: 2 });
+                    io.emit('qr', lastQR);
+                } catch (e) { console.log('QR err:', e.message); }
+            }
 
-🎮 *GAME*
-• .suit [batu/gunting/kertas]
-• .dadu - Lempar dadu
-• .slot - Slot machine
+            if (connection === 'open') {
+                isConnected = true;
+                pairingMode = false;
+                lastQR = null;
+                lastCode = null;
+                reconnectCount = 0;
+                io.emit('status', 'connected');
+                console.log('BOT CONNECTED');
+            }
 
-📸 *MEDIA*
-• .viewonce - Info view once
-• .saved - File tersimpan
-• .mycount - Statistik`;
-            await sock.sendMessage(from, { text: menu });
-        }
+            if (connection === 'close') {
+                isConnected = false;
+                io.emit('status', 'disconnected');
+                const code = lastDisconnect?.error?.output?.statusCode;
+                console.log('CLOSED. Code:', code);
+                
+                // Kalo logged out, jangan reconnect
+                if (code === DisconnectReason.loggedOut) {
+                    console.log('LOGGED OUT. Hapus auth_info.');
+                    try { fs.rmSync(AUTH_DIR, { recursive: true, force: true }); } catch(e) {}
+                    return;
+                }
+                
+                // Reconnect max 3x, jeda 5 detik
+                reconnectCount++;
+                if (reconnectCount <= 3) {
+                    console.log('Reconnect ke-' + reconnectCount);
+                    setTimeout(() => startBot(), 5000);
+                } else {
+                    console.log('Terlalu banyak reconnect. Stop.');
+                }
+            }
+        });
 
-        if (cmd === '.ping') await sock.sendMessage(from, { text: '🏓 Pong!' });
-        if (cmd === '.info') await sock.sendMessage(from, { text: '🤖 *NEBOLUSVERSE BOT* v4.0' });
-        if (cmd === '.owner') await sock.sendMessage(from, { text: '👤 BELLIOT Ganteng\n📱 081323879987' });
-        if (cmd === '.status') await sock.sendMessage(from, { text: '✅ Bot online' });
-        if (cmd === '.waktu') await sock.sendMessage(from, { text: `🕐 ${new Date().toLocaleString('id-ID')}` });
+        sock.ev.on('messages.upsert', async ({ messages, type }) => {
+            if (type !== 'notify') return;
+            const msg = messages[0];
+            if (!msg.message) return;
+            const from = msg.key.remoteJid;
+            const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || '').trim().toLowerCase();
 
-        if (cmd.startsWith('.calc ')) {
-            try {
-                const expr = text.slice(6);
-                const result = eval(expr.replace(/[^0-9+\-*/().]/g, ''));
-                await sock.sendMessage(from, { text: `🧮 ${expr} = ${result}` });
-            } catch { await sock.sendMessage(from, { text: '❌ Contoh: .calc 2+2' }); }
-        }
+            if (text === '.menu') await sock.sendMessage(from, { text: 'MENU:\n.menu\n.ping\n.info\n.owner' });
+            if (text === '.ping') await sock.sendMessage(from, { text: 'Pong!' });
+            if (text === '.info') await sock.sendMessage(from, { text: 'NEBOLUSVERSE BOT' });
+            if (text === '.owner') await sock.sendMessage(from, { text: 'BELLIOT Ganteng' });
+        });
 
-        if (cmd.startsWith('.qr ')) {
-            try {
-                const buffer = await QRCode.toBuffer(text.slice(4));
-                await sock.sendMessage(from, { image: buffer, caption: `QR: ${text.slice(4)}` });
-            } catch { await sock.sendMessage(from, { text: '❌ Gagal.' }); }
-        }
-
-        if (cmd.startsWith('.suit ')) {
-            const pil = ['batu','gunting','kertas'];
-            const bot = pil[Math.floor(Math.random()*3)];
-            const user = text.slice(6).toLowerCase();
-            if (!pil.includes(user)) return sock.sendMessage(from, { text: '❌ Pilih: batu, gunting, kertas' });
-            let h = user === bot ? '🤝 Seri!' : ((user==='batu'&&bot==='gunting')||(user==='gunting'&&bot==='kertas')||(user==='kertas'&&bot==='batu')) ? '🎉 Menang!' : '😢 Kalah!';
-            await sock.sendMessage(from, { text: `Kamu: ${user}\nBot: ${bot}\n\n${h}` });
-        }
-
-        if (cmd === '.dadu') await sock.sendMessage(from, { text: `🎲 ${Math.floor(Math.random()*6)+1}` });
-
-        if (cmd === '.slot') {
-            const e = ['🍒','🍋','🍊','💎','7️⃣'];
-            const a = e[Math.floor(Math.random()*5)], b = e[Math.floor(Math.random()*5)], c = e[Math.floor(Math.random()*5)];
-            await sock.sendMessage(from, { text: `${a} ${b} ${c}\n\n${a===b&&b===c?'🎉 JACKPOT!':'😢 Coba lagi'}` });
-        }
-
-        if (cmd === '.translate') await sock.sendMessage(from, { text: '🌐 Contoh: .translate halo (fitur butuh API)' });
-    });
+    } catch (e) {
+        console.log('START BOT ERROR:', e.message);
+        setTimeout(() => startBot(), 5000);
+    }
 }
 
 io.on('connection', (socket) => {
@@ -158,7 +131,7 @@ io.on('connection', (socket) => {
             if (fs.existsSync(AUTH_DIR)) fs.rmSync(AUTH_DIR, { recursive: true, force: true });
 
             await startBot();
-            await new Promise(r => setTimeout(r, 3000));
+            await new Promise(r => setTimeout(r, 4000));
 
             if (!sock) {
                 pairingMode = false;
@@ -180,11 +153,10 @@ io.on('connection', (socket) => {
             if (sock) { try { sock.end(); } catch(e) {} sock = null; }
             if (fs.existsSync(AUTH_DIR)) fs.rmSync(AUTH_DIR, { recursive: true, force: true });
             await startBot();
-        } catch (e) {
-            socket.emit('pairing-error', e.message);
-        }
+        } catch (e) { socket.emit('pairing-error', e.message); }
     });
 });
 
-startBot();
-server.listen(PORT, () => console.log('🚀 Web jalan di port ' + PORT));
+// Start server DULU, baru bot
+server.listen(PORT, () => console.log('Web jalan di port ' + PORT));
+setTimeout(() => startBot(), 1000);
