@@ -10,14 +10,13 @@ socket.on('qr', (d) => {
 socket.on('status', (s) => {
   const st = $('status');
   if (s === 'connected') {
-    st.innerText = '🟢 CONNECTED';
+    st.innerText = 'CONNECTED';
     st.classList.add('on');
     $('qrbox').style.display = 'none';
     $('pairbox').style.display = 'none';
-    $('info').style.display = 'none';
     $('okbox').style.display = 'block';
   } else {
-    st.innerText = '🔴 DISCONNECTED';
+    st.innerText = 'DISCONNECTED';
     st.classList.remove('on');
   }
 });
@@ -28,14 +27,14 @@ socket.on('pairing-code', (c) => {
   $('info').style.display = 'block';
   $('pairerr').classList.add('hide');
   $('btnpair').disabled = false;
-  $('btnpair').innerText = '📱 MINTA KODE LAGI';
+  $('btnpair').innerText = 'MINTA KODE LAGI';
 });
 
 socket.on('pairing-error', (m) => {
-  $('pairerr').innerText = '❌ ' + m;
+  $('pairerr').innerText = 'ERROR: ' + m;
   $('pairerr').classList.remove('hide');
   $('btnpair').disabled = false;
-  $('btnpair').innerText = '📱 MINTA KODE';
+  $('btnpair').innerText = 'MINTA KODE';
 });
 
 function mintaQR() {
@@ -47,12 +46,12 @@ function mintaQR() {
 
 function mintaKode() {
   const p = $('phone').value.trim();
-  if (!p) return alert('Masukin nomor bot dulu!');
+  if (!p) return alert('Masukin nomor!');
   if (!/^62[0-9]{8,13}$/.test(p)) return alert('Format: 628xxx');
   $('code').style.display = 'none';
   $('info').style.display = 'none';
   $('pairerr').classList.add('hide');
   $('btnpair').disabled = true;
-  $('btnpair').innerText = '⏳ Loading...';
+  $('btnpair').innerText = 'Loading...';
   socket.emit('request-pairing', p);
-    }
+}
